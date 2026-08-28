@@ -1,0 +1,95 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        type: string
+
+      release_name:
+        description: "Release name. Leave blank to use the tag."
+        required: false
+        type: string
+
+      prerelease:
+        description: "Publish as a pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name PNGExtractor `
+            png_extractor_gui.py
+
+      - name: Prepare release asset
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          $assetName = "PNGExtractor-$tag-windows-x64.exe"
+
+          Copy-Item `
+            "dist/PNGExtractor.exe" `
+            "dist/$assetName"
+
+          Write-Host "Release asset: dist/$assetName"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          $releaseName = "${{ inputs.release_name }}"
+          $assetPath = "dist/PNGExtractor-$tag-windows-x64.exe"
+
+          if ([string]::IsNullOrWhiteSpace($releaseName)) {
+            $releaseName = $tag
+          }
+
+          $arguments = @(
+            "release",
+            "create",
+            $tag,
+            $assetPath,
+            "--title",
+            $releaseName,
+            "--generate-notes"
+          )
+
+          if ("${{ inputs.prerelease }}" -eq "true") {
+            $arguments += "--prerelease"
+          }
+
+          gh @arguments
